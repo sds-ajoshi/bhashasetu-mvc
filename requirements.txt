@@ -1,5 +1,12 @@
-fastapi 
-uvicorn[standard]
+fastapi
+uvicorn
+pydantic
+transformers
 torch
-transformers 
-sentencepiece
+IndicTransToolkit
+openai-whisper
+gtts
+ffmpeg-python
+requests
+beautifulsoup4
+nltk

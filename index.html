@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BhashaSetu - Live Demo</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; 
+            background-color: #f4f7f6; 
+            color: #333; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            margin: 20px 0; 
+        }
+        .container { 
+            background: #fff; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 30px rgba(0,0,0,0.1); 
+            width: 90%; 
+            max-width: 800px; 
+        }
+        h1, h2 { 
+            text-align: center; 
+            color: #0056b3; 
+        }
+        h2 { 
+            border-top: 1px solid #ddd; 
+            padding-top: 30px; 
+            margin-top: 40px;
+        }
+        textarea { 
+            width: 100%; 
+            height: 120px; 
+            padding: 15px; 
+            border-radius: 8px; 
+            border: 1px solid #ccc; 
+            font-size: 16px; 
+            margin-bottom: 20px; 
+            box-sizing: border-box;
+        }
+        .buttons { 
+            text-align: center; 
+            margin-bottom: 30px; 
+        }
+        button { 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            padding: 12px 25px; 
+            border-radius: 5px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            margin: 5px 10px; 
+            transition: background-color 0.3s; 
+        }
+        button:hover { 
+            background-color: #0056b3; 
+        }
+        select { 
+            padding: 10px; 
+            font-size: 16px; 
+            border-radius: 5px; 
+            border: 1px solid #ccc; 
+            margin-bottom: 20px; 
+        }
+        .result-box { 
+            background-color: #e9ecef; 
+            border-left: 5px solid #007bff; 
+            padding: 20px; 
+            margin-top: 20px; 
+            border-radius: 5px; 
+            white-space: pre-wrap; 
+            font-family: "Courier New", Courier, monospace; 
+            word-wrap: break-word; 
+        }
+        .result-box h3 { 
+            margin-top: 0; 
+        }
+        #spinner { 
+            text-align: center; 
+            display: none; 
+            margin-top: 20px; 
+            font-weight: bold; 
+        }
+        input[type="file"] { 
+            display: block; 
+            margin: 20px auto; 
+        }
+        .error-message { 
+            color: #dc3545; 
+            text-align: center; 
+            margin-bottom: 20px; 
+            display: none; 
+        }
+        audio { 
+            width: 100%; 
+            margin-top: 10px; 
+        }
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .container { padding: 20px; }
+            button { width: 100%; margin: 10px 0; }
+            select { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>BhashaSetu - Live Demo</h1>
+
+    <!-- Text Translation Section -->
+    <h2>Text Translation</h2>
+    <label for="inputText" class="sr-only">Enter English text</label>
+    <textarea id="inputText" placeholder="Enter English text here..."></textarea>
+    <div class="buttons">
+        <select id="textLanguageSelect" aria-label="Select target language for text translation">
+            <option value="">Select Language</option>
+            <option value="hi">Hindi</option>
+            <option value="bn">Bengali</option>
+            <option value="ta">Tamil</option>
+            <option value="te">Telugu</option> <!-- Example addition for extensibility -->
+        </select>
+        <button onclick="translateText()">Translate Text</button>
+    </div>
+    <div id="textError" class="error-message">Please enter some text and select a language.</div>
+
+    <!-- Audio Translation Section -->
+    <h2>Audio Translation</h2>
+    <label for="audioFile" class="sr-only">Upload audio file</label>
+    <input type="file" id="audioFile" accept="audio/*">
+    <div class="buttons">
+        <select id="audioLanguageSelect" aria-label="Select target language for audio translation">
+            <option value="">Select Language</option>
+            <option value="hi">Hindi</option>
+            <option value="bn">Bengali</option>
+            <option value="ta">Tamil</option>
+            <option value="te">Telugu</option> <!-- Example addition for extensibility -->
+        </select>
+        <button onclick="translateAudio()">Translate Audio</button>
+    </div>
+    <div id="audioError" class="error-message">Please select an audio file and a language.</div>
+
+    <!-- Shared Spinner and Result -->
+    <div id="spinner">Processing...</div>
+    <div id="result" class="result-box" style="display:none;"></div>
+</div>
+
+<script>
+    // Language map for display names and future extensibility
+    // To add a new language: Add { code: 'xx', name: 'Language Name' } and include in dropdown options
+    const languages = [
+        { code: 'hi', name: 'Hindi' },
+        { code: 'bn', name: 'Bengali' },
+        { code: 'ta', name: 'Tamil' },
+        { code: 'te', name: 'Telugu' } // Example: Easily add more here
+    ];
+
+    // Helper to get language name by code
+    function getLanguageName(code) {
+        const lang = languages.find(l => l.code === code);
+        return lang ? lang.name : 'Unknown';
+    }
+
+    // Text Translation Function
+    async function translateText() {
+        const text = document.getElementById('inputText').value.trim();
+        const lang = document.getElementById('textLanguageSelect').value;
+        const errorDiv = document.getElementById('textError');
+
+        if (!text || !lang) {
+            errorDiv.style.display = 'block';
+            return;
+        }
+        errorDiv.style.display = 'none';
+
+        const endpoint = `/translate/text/${lang}`;
+        const url = `http://127.0.0.1:8000${endpoint}`;
+        
+        showSpinner();
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            });
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            displayTextResult(data, lang);
+        } catch (error) {
+            handleError(error);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    // Audio Translation Function
+    async function translateAudio() {
+        const audioInput = document.getElementById('audioFile');
+        const file = audioInput.files[0];
+        const lang = document.getElementById('audioLanguageSelect').value;
+        const errorDiv = document.getElementById('audioError');
+
+        if (!file || !lang) {
+            errorDiv.style.display = 'block';
+            return;
+        }
+        errorDiv.style.display = 'none';
+
+        const endpoint = `/translate/audio/${lang}`;
+        const url = `http://127.0.0.1:8000${endpoint}`;
+        const formData = new FormData();
+        formData.append("audio_file", file);
+
+        showSpinner();
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                body: formData
+            });
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            displayAudioResult(data, lang);
+        } catch (error) {
+            handleError(error);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    // --- Helper functions for UI ---
+    function showSpinner() {
+        document.getElementById('spinner').style.display = 'block';
+        document.getElementById('result').style.display = 'none';
+    }
+
+    function hideSpinner() {
+        document.getElementById('spinner').style.display = 'none';
+    }
+
+    function handleError(error) {
+        console.error("Translation error:", error);
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = `<h3>Error</h3><p>Could not connect to the translation server. Please ensure it's running and try again.</p>`;
+        resultDiv.style.display = 'block';
+    }
+    
+    // Display Text Translation Result (includes audio if available)
+    function displayTextResult(data, lang) {
+        const resultDiv = document.getElementById('result');
+        const langName = getLanguageName(lang);
+        let resultHTML = `<h3>Text Translation Result (${langName})</h3>`;
+        resultHTML += `<p><strong>Source Text:</strong> ${data.source_text}</p>`;
+        resultHTML += `<p><strong>Translated Text:</strong> ${data.translated_text}</p><hr>`;
+        resultHTML += `<h4>Metrics:</h4><ul>`;
+        resultHTML += `<li><strong>Latency:</strong> ${data.metrics.latency_seconds} seconds</li>`;
+        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.metrics.cost_rupees}</li></ul>`;
+
+        // Audio Playback
+        if (data.audio_base64) {
+            resultHTML += `<h4>Audio Output:</h4><audio controls><source src="data:audio/mp3;base64,${data.audio_base64}" type="audio/mp3">Your browser does not support the audio element.</audio>`;
+        } else {
+            resultHTML += `<p><em>Audio generation failed or not available.</em></p>`;
+        }
+
+        resultDiv.innerHTML = resultHTML;
+        resultDiv.style.display = 'block';
+    }
+
+    // Display Audio Translation Result (includes audio if available)
+    function displayAudioResult(data, lang) {
+        const resultDiv = document.getElementById('result');
+        const langName = getLanguageName(lang);
+        let resultHTML = `<h3>Audio Translation Result (${langName})</h3>`;
+        resultHTML += `<p><strong>Transcribed Text:</strong> ${data.transcribed_text}</p>`;
+        resultHTML += `<p><strong>Translated Text:</strong> ${data.translation.translated_text}</p><hr>`;
+        resultHTML += `<h4>Metrics:</h4><ul>`;
+        resultHTML += `<li><strong>Latency:</strong> ${data.translation.metrics.latency_seconds} seconds</li>`;
+        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.translation.metrics.cost_rupees}</li></ul>`;
+
+        // Audio Playback
+        if (data.translation.audio_base64) {
+            resultHTML += `<h4>Audio Output:</h4><audio controls><source src="data:audio/mp3;base64,${data.translation.audio_base64}" type="audio/mp3">Your browser does not support the audio element.</audio>`;
+        } else {
+            resultHTML += `<p><em>Audio generation failed or not available.</em></p>`;
+        }
+
+        resultDiv.innerHTML = resultHTML;
+        resultDiv.style.display = 'block';
+    }
+</script>
+
+</body>
+</html>
