@@ -32,9 +32,8 @@
             padding-top: 30px; 
             margin-top: 40px;
         }
-        textarea { 
+        textarea, input[type="text"] { 
             width: 100%; 
-            height: 120px; 
             padding: 15px; 
             border-radius: 8px; 
             border: 1px solid #ccc; 
@@ -42,6 +41,7 @@
             margin-bottom: 20px; 
             box-sizing: border-box;
         }
+        textarea { height: 120px; }
         .buttons { 
             text-align: center; 
             margin-bottom: 30px; 
@@ -66,6 +66,10 @@
             border-radius: 5px; 
             border: 1px solid #ccc; 
             margin-bottom: 20px; 
+        }
+        .checkbox-container { 
+            margin-bottom: 20px; 
+            text-align: center; 
         }
         .result-box { 
             background-color: #e9ecef; 
@@ -100,11 +104,10 @@
             width: 100%; 
             margin-top: 10px; 
         }
-        /* Responsive adjustments */
         @media (max-width: 600px) {
             .container { padding: 20px; }
             button { width: 100%; margin: 10px 0; }
-            select { width: 100%; }
+            select, input[type="text"] { width: 100%; }
         }
     </style>
 </head>
@@ -123,7 +126,15 @@
             <option value="hi">Hindi</option>
             <option value="bn">Bengali</option>
             <option value="ta">Tamil</option>
-            <option value="te">Telugu</option> <!-- Example addition for extensibility -->
+            <option value="te">Telugu</option>
+            <option value="ml">Malayalam</option>
+            <option value="gu">Gujarati</option>
+            <option value="mr">Marathi</option>
+            <option value="pa">Punjabi</option>
+            <option value="kn">Kannada</option>
+            <option value="ur">Urdu</option>
+            <option value="or">Odia</option>
+            <option value="as">Assamese</option>
         </select>
         <button onclick="translateText()">Translate Text</button>
     </div>
@@ -139,11 +150,47 @@
             <option value="hi">Hindi</option>
             <option value="bn">Bengali</option>
             <option value="ta">Tamil</option>
-            <option value="te">Telugu</option> <!-- Example addition for extensibility -->
+            <option value="te">Telugu</option>
+            <option value="ml">Malayalam</option>
+            <option value="gu">Gujarati</option>
+            <option value="mr">Marathi</option>
+            <option value="pa">Punjabi</option>
+            <option value="kn">Kannada</option>
+            <option value="ur">Urdu</option>
+            <option value="or">Odia</option>
+            <option value="as">Assamese</option>
         </select>
         <button onclick="translateAudio()">Translate Audio</button>
     </div>
     <div id="audioError" class="error-message">Please select an audio file and a language.</div>
+
+    <!-- PIB Translation Section -->
+    <h2>PIB Press Release Translation</h2>
+    <label for="pibUrl" class="sr-only">Enter PIB URL</label>
+    <input type="text" id="pibUrl" placeholder="Enter PIB Press Release URL (e.g., https://www.pib.gov.in/PressReleasePage.aspx?PRID=1942412)">
+    <div class="checkbox-container">
+        <input type="checkbox" id="useSample" aria-label="Use sample text for quick testing">
+        <label for="useSample">Use sample text (quick test)</label>
+    </div>
+    <div class="buttons">
+        <select id="pibLanguageSelect" aria-label="Select target language for PIB translation">
+            <option value="">Select Language</option>
+            <option value="hi">Hindi</option>
+            <option value="bn">Bengali</option>
+            <option value="ta">Tamil</option>
+            <option value="te">Telugu</option>
+            <option value="ml">Malayalam</option>
+            <option value="gu">Gujarati</option>
+            <option value="mr">Marathi</option>
+            <option value="pa">Punjabi</option>
+            <option value="kn">Kannada</option>
+            <option value="ur">Urdu</option>
+            <option value="or">Odia</option>
+            <option value="as">Assamese</option>
+        </select>
+        <button onclick="translatePIB()">Translate PIB</button>
+    </div>
+    <div id="pibError" class="error-message">Please enter a valid PIB URL and select a language.</div>
 
     <!-- Shared Spinner and Result -->
     <div id="spinner">Processing...</div>
@@ -151,13 +198,20 @@
 </div>
 
 <script>
-    // Language map for display names and future extensibility
-    // To add a new language: Add { code: 'xx', name: 'Language Name' } and include in dropdown options
+    // Language map for display names
     const languages = [
         { code: 'hi', name: 'Hindi' },
         { code: 'bn', name: 'Bengali' },
         { code: 'ta', name: 'Tamil' },
-        { code: 'te', name: 'Telugu' } // Example: Easily add more here
+        { code: 'te', name: 'Telugu' },
+        { code: 'ml', name: 'Malayalam' },
+        { code: 'gu', name: 'Gujarati' },
+        { code: 'mr', name: 'Marathi' },
+        { code: 'pa', name: 'Punjabi' },
+        { code: 'kn', name: 'Kannada' },
+        { code: 'ur', name: 'Urdu' },
+        { code: 'or', name: 'Odia' },
+        { code: 'as', name: 'Assamese' }
     ];
 
     // Helper to get language name by code
@@ -232,7 +286,38 @@
         }
     }
 
-    // --- Helper functions for UI ---
+    // PIB Translation Function
+    async function translatePIB() {
+        const url = document.getElementById('pibUrl').value.trim();
+        const lang = document.getElementById('pibLanguageSelect').value;
+        const useSample = document.getElementById('useSample').checked;
+        const errorDiv = document.getElementById('pibError');
+
+        if (!url || !lang) {
+            errorDiv.style.display = 'block';
+            return;
+        }
+        errorDiv.style.display = 'none';
+
+        const endpoint = `/demo_pib_translation?url=${encodeURIComponent(url)}&lang=${lang}&include_audio=${!useSample}&use_sample=${useSample}`;
+        const fetchUrl = `http://127.0.0.1:8000${endpoint}`;
+        
+        showSpinner();
+        try {
+            const response = await fetch(fetchUrl, {
+                method: 'GET'
+            });
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            displayTextResult(data, lang); // Reuse text result display for PIB
+        } catch (error) {
+            handleError(error);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    // Helper functions for UI
     function showSpinner() {
         document.getElementById('spinner').style.display = 'block';
         document.getElementById('result').style.display = 'none';
@@ -245,44 +330,50 @@
     function handleError(error) {
         console.error("Translation error:", error);
         const resultDiv = document.getElementById('result');
-        resultDiv.innerHTML = `<h3>Error</h3><p>Could not connect to the translation server. Please ensure it's running and try again.</p>`;
+        resultDiv.innerHTML = `<h3>Error</h3><p>Could not connect to the translation server. Please ensure it's running and try again. Error: ${error.message}</p>`;
         resultDiv.style.display = 'block';
     }
     
-    // Display Text Translation Result (includes audio if available)
+    // Display Text/PIB Translation Result
     function displayTextResult(data, lang) {
         const resultDiv = document.getElementById('result');
         const langName = getLanguageName(lang);
-        let resultHTML = `<h3>Text Translation Result (${langName})</h3>`;
-        resultHTML += `<p><strong>Source Text:</strong> ${data.source_text}</p>`;
-        resultHTML += `<p><strong>Translated Text:</strong> ${data.translated_text}</p><hr>`;
+        let resultHTML = `<h3>${data.original_text ? 'PIB Translation Result' : 'Text Translation Result'} (${langName})</h3>`;
+        resultHTML += `<p><strong>Source Text:</strong> ${data.original_text || data.source_text}</p>`;
+        resultHTML += `<p><strong>Translated Text:</strong> ${data.translated_text}</p>`;
+        resultHTML += `<p><strong>Character Count:</strong> ${data.char_count}</p><hr>`;
         resultHTML += `<h4>Metrics:</h4><ul>`;
-        resultHTML += `<li><strong>Latency:</strong> ${data.metrics.latency_seconds} seconds</li>`;
-        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.metrics.cost_rupees}</li></ul>`;
+        resultHTML += `<li><strong>Total Latency:</strong> ${(data.metrics.latency_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Fetch Time:</strong> ${(data.metrics.fetch_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Parse Time:</strong> ${(data.metrics.parse_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Translate Time:</strong> ${(data.metrics.translate_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.metrics.cost_rupees.toFixed(5)}</li></ul>`;
 
-        // Audio Playback
         if (data.audio_base64) {
             resultHTML += `<h4>Audio Output:</h4><audio controls><source src="data:audio/mp3;base64,${data.audio_base64}" type="audio/mp3">Your browser does not support the audio element.</audio>`;
         } else {
-            resultHTML += `<p><em>Audio generation failed or not available.</em></p>`;
+            resultHTML += `<p><em>Audio generation failed or not requested.</em></p>`;
         }
 
         resultDiv.innerHTML = resultHTML;
         resultDiv.style.display = 'block';
     }
 
-    // Display Audio Translation Result (includes audio if available)
+    // Display Audio Translation Result
     function displayAudioResult(data, lang) {
         const resultDiv = document.getElementById('result');
         const langName = getLanguageName(lang);
         let resultHTML = `<h3>Audio Translation Result (${langName})</h3>`;
         resultHTML += `<p><strong>Transcribed Text:</strong> ${data.transcribed_text}</p>`;
-        resultHTML += `<p><strong>Translated Text:</strong> ${data.translation.translated_text}</p><hr>`;
+        resultHTML += `<p><strong>Translated Text:</strong> ${data.translation.translated_text}</p>`;
+        resultHTML += `<p><strong>Character Count:</strong> ${data.translation.char_count}</p><hr>`;
         resultHTML += `<h4>Metrics:</h4><ul>`;
-        resultHTML += `<li><strong>Latency:</strong> ${data.translation.metrics.latency_seconds} seconds</li>`;
-        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.translation.metrics.cost_rupees}</li></ul>`;
+        resultHTML += `<li><strong>Total Latency:</strong> ${(data.translation.metrics.latency_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Fetch Time:</strong> ${(data.translation.metrics.fetch_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Parse Time:</strong> ${(data.translation.metrics.parse_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Translate Time:</strong> ${(data.translation.metrics.translate_ms / 1000).toFixed(2)} seconds</li>`;
+        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.translation.metrics.cost_rupees.toFixed(5)}</li></ul>`;
 
-        // Audio Playback
         if (data.translation.audio_base64) {
             resultHTML += `<h4>Audio Output:</h4><audio controls><source src="data:audio/mp3;base64,${data.translation.audio_base64}" type="audio/mp3">Your browser does not support the audio element.</audio>`;
         } else {

@@ -19,8 +19,14 @@ import nltk
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 import concurrent.futures
 import re
+import logging
+import subprocess
 nltk.download('punkt')
 nltk.download('punkt_tab')
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # --- Pydantic Models ---
 class Metrics(BaseModel):
@@ -28,13 +34,18 @@ class Metrics(BaseModel):
     cost_rupees: float
     time_complexity: str
     space_complexity: str
+    fetch_ms: float
+    parse_ms: float
+    translate_ms: float
     bleu_score: float | None = None
     wer_score: float | None = None
 
 class TranslationResponse(BaseModel):
+    source_language: str
+    target_language: str
     source_text: str
     translated_text: str
-    target_language: str
+    char_count: int
     metrics: Metrics
     audio_base64: str | None = None
 
@@ -57,9 +68,11 @@ class TranslationRequest(BaseModel):
     include_audio: bool = True
 
 class PIBTranslationResponse(BaseModel):
+    source_language: str
+    target_language: str
     original_text: str
     translated_text: str
-    target_language: str
+    char_count: int
     metrics: Metrics
     audio_base64: str | None = None
 
@@ -93,26 +106,24 @@ LANGUAGES = {
 
 # --- Model and Toolkit Initialization ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {DEVICE}")
+logger.info(f"Using device: {DEVICE}")
+if DEVICE == "cuda":
+    try:
+        nvidia_smi = subprocess.check_output(["nvidia-smi"]).decode()
+        logger.info(f"GPU available: \n{nvidia_smi}")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.warning("nvidia-smi failed; GPU may not be properly configured")
 
 MODEL_NAME = "ai4bharat/indictrans2-en-indic-dist-200M"
-print(f"Loading IndicTrans2 Model: {MODEL_NAME}")
+logger.info(f"Loading IndicTrans2 Model: {MODEL_NAME}")
 translator_tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 translator_model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(DEVICE)
 ip = IndicProcessor(inference=True)
-print("IndicTrans2 loaded successfully.")
+logger.info("IndicTrans2 loaded successfully.")
 
-print("Loading Whisper Model (base)...")
+logger.info("Loading Whisper Model (base)...")
 whisper_model = whisper.load_model("base", device=DEVICE)
-print("Whisper model loaded successfully.")
-
-# Optional Coqui TTS setup (commented; requires pip install TTS and model download)
-# try:
-#     from TTS.api import TTS
-#     COQUI_TTS = TTS("tts_models/multilingual/multi-dataset/your_tts", progress_bar=False)
-#     COQUI_AVAILABLE = True
-# except ImportError:
-#     COQUI_AVAILABLE = False
+logger.info("Whisper model loaded successfully.")
 
 # --- Helper Functions ---
 def calculate_bleu(reference: str, hypothesis: str) -> float:
@@ -126,93 +137,66 @@ def calculate_wer(reference: str, hypothesis: str) -> float:
     return edit_distance(ref_words, hyp_words) / len(ref_words) if ref_words else 0.0
 
 def extract_tables(text: str):
-    """Extract table-like sections (e.g., annexures) using regex for simple tabular data."""
-    # Simple regex to detect table blocks (e.g., lines with multiple \n separated columns)
-    table_pattern = r'(Annexure\s+[I|II].*?)(?=Annexure\s+[I|II]|This information|\Z)'
+    table_pattern = r'(Annexure\s+[IVXLC]+.*?)(?=Annexure\s+[IVXLC]+|This information|\Z)'
     tables = re.findall(table_pattern, text, re.DOTALL | re.IGNORECASE)
     non_table_text = re.sub(table_pattern, '', text, flags=re.DOTALL | re.IGNORECASE).strip()
     return non_table_text, tables
 
-def translate_table(table_text: str, src_lang: str, tgt_lang_full: str):
-    """Translate table by splitting into rows/cells, translate each, reconstruct."""
-    lines = table_text.split('\n')
-    translated_lines = []
-    for line in lines:
-        if line.strip():
-            # Assume tab-like: split by multiple spaces or \n
-            cells = re.split(r'\s{2,}|\t', line.strip())
-            translated_cells = []
-            for cell in cells:
-                if cell:
-                    batch = ip.preprocess_batch([cell], src_lang=src_lang, tgt_lang=tgt_lang_full)
-                    inputs = translator_tokenizer(batch, truncation=True, padding="longest", return_tensors="pt", return_attention_mask=True).to(DEVICE)
-                    with torch.no_grad():
-                        generated_tokens = translator_model.generate(**inputs, use_cache=True, min_length=0, max_length=128, num_beams=3, num_return_sequences=1)
-                    decoded_tokens = translator_tokenizer.batch_decode(generated_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-                    translations = ip.postprocess_batch(decoded_tokens, lang=tgt_lang_full)
-                    translated_cells.append(translations[0])
-            translated_lines.append('\t'.join(translated_cells))  # Reconstruct as tab-separated
-    return '\n'.join(translated_lines)
-
-def translate_chunk(chunk: str, src_lang: str, tgt_lang_full: str):
-    batch = ip.preprocess_batch([chunk], src_lang=src_lang, tgt_lang=tgt_lang_full)
-    inputs = translator_tokenizer(batch, truncation=True, padding="longest", return_tensors="pt", return_attention_mask=True).to(DEVICE)
-    with torch.no_grad():
-        generated_tokens = translator_model.generate(**inputs, use_cache=True, min_length=0, max_length=512, num_beams=3, num_return_sequences=1)
-    decoded_tokens = translator_tokenizer.batch_decode(generated_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-    translations = ip.postprocess_batch(decoded_tokens, lang=tgt_lang_full)
-    return translations[0]
+def translate_chunks(chunks: list[str], src_lang: str, tgt_lang_full: str):
+    if not chunks: return []
+    logger.info(f"Translating {len(chunks)} chunks...")
+    try:
+        batch = ip.preprocess_batch(chunks, src_lang=src_lang, tgt_lang=tgt_lang_full)
+        inputs = translator_tokenizer(batch, truncation=True, padding="longest", return_tensors="pt", return_attention_mask=True).to(DEVICE)
+        with torch.no_grad():
+            generated_tokens = translator_model.generate(**inputs, use_cache=True, min_length=0, max_length=512, num_beams=1, num_return_sequences=1)
+        decoded_tokens = translator_tokenizer.batch_decode(generated_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        translations = ip.postprocess_batch(decoded_tokens, lang=tgt_lang_full)
+        return translations
+    except Exception as e:
+        logger.error(f"Error in translate_chunks: {e}")
+        return [""] * len(chunks)
 
 def translate_text(text: str, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None, include_audio: bool = True):
     if not text:
-        return "", Metrics(latency_ms=0.0, cost_rupees=0.0, time_complexity="O(1)", space_complexity="O(1)"), None
+        return "", Metrics(latency_ms=0.0, cost_rupees=0.0, time_complexity="O(1)", space_complexity="O(1)", fetch_ms=0.0, parse_ms=0.0, translate_ms=0.0), None
 
     start_time = time.time()
+    translated_text = ""
     try:
-        # Extract and handle tables separately
         non_table_text, tables = extract_tables(text)
-        
-        # Chunk non-table text into batches of 5-10 sentences
         sentences = nltk.sent_tokenize(non_table_text)
-        chunk_size = 8  # Batch 8 sentences per generation for efficiency
-        translated_sentences = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:  # Parallelize chunks
-            futures = []
-            for i in range(0, len(sentences), chunk_size):
-                chunk = ' '.join(sentences[i:i+chunk_size])
-                futures.append(executor.submit(translate_chunk, chunk, src_lang, tgt_lang_full))
-            for future in concurrent.futures.as_completed(futures):
-                translated_sentences.append(future.result())
         
-        translated_non_table = ' '.join(translated_sentences)
+        chunks = []
+        current_chunk = []
+        current_len = 0
+        for sent in sentences:
+            word_count = len(nltk.word_tokenize(sent))
+            if current_len + word_count > 200:
+                chunks.append(' '.join(current_chunk))
+                current_chunk = [sent]
+                current_len = word_count
+            else:
+                current_chunk.append(sent)
+                current_len += word_count
+        if current_chunk:
+            chunks.append(' '.join(current_chunk))
         
-        # Translate tables
-        translated_tables = []
-        for table in tables:
-            translated_tables.append(translate_table(table, src_lang, tgt_lang_full))
-        
-        # Reassemble
-        translated_text = translated_non_table + '\n\n' + '\n\n'.join(translated_tables)
+        translated_chunks = translate_chunks(chunks, src_lang, tgt_lang_full)
+        translated_text = ' '.join(translated_chunks)
+
     except Exception as e:
-        print(f"Translation error: {e}")
-        raise ValueError("Translation failed")
+        logger.error(f"Translation error: {e}")
+        raise ValueError(f"Translation failed: {e}")
 
-    latency = round((time.time() - start_time) * 1000, 3)  # in ms
-    cost = round((latency / 60000) * 0.10, 5)
+    translate_time = round((time.time() - start_time) * 1000, 3)
+    cost = round((translate_time / 60000) * 0.10, 5)
+    bleu_score = calculate_bleu(ground_truth, translated_text) if ground_truth else None
     
-    # Quality check: If ground_truth, split into chunks and average BLEU
-    bleu_score = None
-    if ground_truth:
-        gt_sentences = nltk.sent_tokenize(ground_truth)
-        hyp_sentences = nltk.sent_tokenize(translated_text)
-        chunk_bleus = [calculate_bleu(' '.join(gt_sentences[i:i+chunk_size]), ' '.join(hyp_sentences[i:i+chunk_size])) for i in range(0, min(len(gt_sentences), len(hyp_sentences)), chunk_size)]
-        bleu_score = sum(chunk_bleus) / len(chunk_bleus) if chunk_bleus else None
-
     metrics_data = Metrics(
-        latency_ms=latency,
-        cost_rupees=cost,
-        time_complexity="O(n^2 * d)",
-        space_complexity="O(n * d)",
+        latency_ms=translate_time, cost_rupees=cost,
+        time_complexity="O(n^2 * d)", space_complexity="O(n * d)",
+        fetch_ms=0.0, parse_ms=0.0, translate_ms=translate_time,
         bleu_score=bleu_score
     )
 
@@ -220,167 +204,100 @@ def translate_text(text: str, src_lang: str, tgt_lang_full: str, tgt_lang_short:
     if include_audio:
         try:
             tts = gTTS(translated_text, lang=tgt_lang_short)
-            buffer = io.BytesIO()
-            tts.save(buffer)
-            buffer.seek(0)
-            audio_bytes = buffer.read()
-            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            buf = io.BytesIO()
+            tts.save(buf)
+            buf.seek(0)
+            audio_base64 = base64.b64encode(buf.read()).decode('utf-8')
         except Exception as e:
-            print(f"gTTS generation error: {e}")
-            # Optional: Fallback to Coqui TTS if available
-            # if COQUI_AVAILABLE:
-            #     try:
-            #         wav = COQUI_TTS.tts(text=translated_text, language=tgt_lang_short)  # Adjust language if needed
-            #         # Convert wav to mp3 if necessary, then base64
-            #     except Exception as ce:
-            #         print(f"Coqui TTS error: {ce}")
+            logger.warning(f"gTTS error: {e}")
 
     return translated_text, metrics_data, audio_base64
 
-def translate_with_timeout(text: str, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None, include_audio: bool = True, timeout_sec: int = 60):
-    """Wrapper for translate_text with timeout using concurrent.futures."""
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(translate_text, text, src_lang, tgt_lang_full, tgt_lang_short, ground_truth, include_audio)
-        try:
-            return future.result(timeout=timeout_sec)
-        except concurrent.futures.TimeoutError:
-            return text, Metrics(latency_ms=timeout_sec*1000, cost_rupees=0.0, time_complexity="O(1)", space_complexity="O(1)"), None  # Return partial/original on timeout
-
-async def translate_audio_file(audio_file: UploadFile, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None, include_audio: bool = True):
-    temp_audio_path = f"./temp_{audio_file.filename}"
-    try:
-        with open(temp_audio_path, "wb") as buffer:
-            buffer.write(await audio_file.read())
-
-        print("Transcribing audio...")
-        try:
-            transcription_result = whisper_model.transcribe(temp_audio_path, fp16=torch.cuda.is_available(), language="en")
-            transcribed_text = transcription_result["text"]
-            wer_score = calculate_wer(ground_truth, transcribed_text) if ground_truth else None
-        except Exception as e:
-            print(f"Transcription error: {e}")
-            raise ValueError("Audio transcription failed")
-
-        print("Translating transcribed text...")
-        translated_text, metrics, audio_base64 = translate_with_timeout(transcribed_text, src_lang, tgt_lang_full, tgt_lang_short, ground_truth, include_audio)
-        metrics.wer_score = wer_score
-
-        translation_response = TranslationResponse(
-            source_text=transcribed_text,
-            translated_text=translated_text,
-            target_language=tgt_lang_short,
-            metrics=metrics,
-            audio_base64=audio_base64
-        )
-        return AudioTranslationResponse(transcribed_text=transcribed_text, translation=translation_response)
-    finally:
-        if os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
-
-async def generate_subtitles(file: UploadFile, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None, include_audio: bool = True):
-    temp_path = f"./temp_{file.filename}"
+async def generate_subtitles(file: UploadFile, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None):
+    temp_path = f"./temp_subtitle_{file.filename}"
     try:
         with open(temp_path, "wb") as buffer:
             buffer.write(await file.read())
 
-        print("Transcribing with timestamps...")
-        try:
-            result = whisper_model.transcribe(temp_path, fp16=torch.cuda.is_available(), language="en", verbose=False)
-            segments = result["segments"]
-            transcribed_text = result["text"]
-            wer_score = calculate_wer(ground_truth, transcribed_text) if ground_truth else None
-        except Exception as e:
-            print(f"Transcription error: {e}")
-            raise ValueError("Transcription failed")
-
-        print("Translating segments...")
+        logger.info("Transcribing with timestamps for subtitles...")
+        result = whisper_model.transcribe(temp_path, fp16=torch.cuda.is_available(), language="en")
+        segments = result["segments"]
+        transcribed_text = result["text"]
+        wer_score = calculate_wer(ground_truth, transcribed_text) if ground_truth else None
+        
         srt_content = ""
         for i, segment in enumerate(segments, 1):
             start = segment["start"]
             end = segment["end"]
             text = segment["text"].strip()
             if text:
-                translated, _, _ = translate_with_timeout(text, src_lang, tgt_lang_full, tgt_lang_short, include_audio=False)
+                translated_segment, _, _ = translate_text(text, src_lang, tgt_lang_full, tgt_lang_short, include_audio=False)
                 start_time = f"{int(start//3600):02d}:{int((start%3600)//60):02d}:{int(start%60):02d},{int((start-int(start))*1000):03d}"
                 end_time = f"{int(end//3600):02d}:{int((end%3600)//60):02d}:{int(end%60):02d},{int((end-int(end))*1000):03d}"
-                srt_content += f"{i}\n{start_time} --> {end_time}\n{translated}\n\n"
+                srt_content += f"{i}\n{start_time} --> {end_time}\n{translated_segment}\n\n"
 
-        translated_full, metrics, audio_base64 = translate_with_timeout(transcribed_text, src_lang, tgt_lang_full, tgt_lang_short, ground_truth, include_audio)
+        translated_full, metrics, audio_base64 = translate_text(transcribed_text, src_lang, tgt_lang_full, tgt_lang_short, ground_truth, include_audio=True)
         metrics.wer_score = wer_score
 
         translation = TranslationResponse(
-            source_text=transcribed_text,
-            translated_text=translated_full,
-            target_language=tgt_lang_short,
-            metrics=metrics,
-            audio_base64=audio_base64
+            source_language="en", target_language=tgt_lang_short,
+            source_text=transcribed_text, translated_text=translated_full,
+            char_count=len(transcribed_text), metrics=metrics, audio_base64=audio_base64
         )
         return SubtitleResponse(srt_content=srt_content, translation=translation)
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-async def video_translate(video_file: UploadFile, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None, include_audio: bool = True):
-    temp_video_path = f"./temp_video_{video_file.filename}"
-    temp_audio_path = f"./temp_audio_{video_file.filename}.mp3"
-    temp_tts_path = f"./temp_tts_{video_file.filename}.mp3"
-    temp_output_path = f"./temp_output_{video_file.filename}.mp4"
+async def video_translate(video_file: UploadFile, src_lang: str, tgt_lang_full: str, tgt_lang_short: str, ground_truth: str | None = None):
+    # Define temporary file paths
+    base_name = os.path.splitext(video_file.filename)[0]
+    temp_video_path = f"./temp_{base_name}.mp4"
+    temp_audio_path = f"./temp_{base_name}.mp3"
+    temp_tts_path = f"./temp_tts_{base_name}.mp3"
+    temp_output_path = f"./temp_output_{base_name}.mp4"
+    
     try:
         with open(temp_video_path, "wb") as buffer:
             buffer.write(await video_file.read())
 
-        # Extract audio
-        print("Extracting audio...")
-        ffmpeg.input(temp_video_path).output(temp_audio_path, format='mp3', acodec='libmp3lame').run(overwrite_output=True, quiet=True, cmd='ffmpeg')
+        logger.info("Extracting audio from video...")
+        ffmpeg.input(temp_video_path).output(temp_audio_path, acodec='libmp3lame').run(overwrite_output=True, quiet=True)
 
-        # Transcribe
-        print("Transcribing audio...")
+        logger.info("Transcribing audio...")
         result = whisper_model.transcribe(temp_audio_path, fp16=torch.cuda.is_available(), language="en")
         transcribed_text = result["text"]
         wer_score = calculate_wer(ground_truth, transcribed_text) if ground_truth else None
 
-        # Translate
-        print("Translating text...")
-        translated_text, metrics, _ = translate_with_timeout(transcribed_text, src_lang, tgt_lang_full, tgt_lang_short, ground_truth, include_audio=False)  # Audio generated separately
+        logger.info("Translating text...")
+        translated_text, metrics, audio_base64 = translate_text(transcribed_text, src_lang, tgt_lang_full, tgt_lang_short, ground_truth, include_audio=True)
         metrics.wer_score = wer_score
 
-        # Generate TTS audio file
-        try:
-            tts = gTTS(translated_text, lang=tgt_lang_short)
-            tts.save(temp_tts_path)
-        except Exception as e:
-            print(f"TTS error: {e}")
-            raise ValueError("TTS generation failed")
+        logger.info("Saving TTS audio to file...")
+        if audio_base64:
+            tts_audio_bytes = base64.b64decode(audio_base64)
+            with open(temp_tts_path, "wb") as f:
+                f.write(tts_audio_bytes)
+        else:
+            raise ValueError("TTS generation failed, cannot proceed with video dubbing.")
 
-        # Overlay new audio on video
-        print("Overlaying audio on video...")
-        try:
-            input_video = ffmpeg.input(temp_video_path)
-            input_audio = ffmpeg.input(temp_tts_path)
-            ffmpeg.output(input_video.video, input_audio.audio, temp_output_path, vcodec='copy', acodec='aac', strict='experimental').run(overwrite_output=True, quiet=True, cmd='ffmpeg')
-        except Exception as e:
-            print(f"FFmpeg error: {e}")
-            raise ValueError("Video processing failed")
+        logger.info("Overlaying new audio onto video...")
+        input_video = ffmpeg.input(temp_video_path)
+        input_audio = ffmpeg.input(temp_tts_path)
+        ffmpeg.output(input_video.video, input_audio.audio, temp_output_path, vcodec='copy', acodec='aac', shortest=None).run(overwrite_output=True, quiet=True)
 
-        # Read video as base64
+        logger.info("Encoding final video to base64...")
         with open(temp_output_path, "rb") as f:
             video_base64 = base64.b64encode(f.read()).decode('utf-8')
-
-        # Optional audio_base64
-        audio_base64 = None
-        if include_audio:
-            with open(temp_tts_path, "rb") as f:
-                audio_base64 = base64.b64encode(f.read()).decode('utf-8')
-
+        
+        translation_response = TranslationResponse(
+            source_language="en", target_language=tgt_lang_short,
+            source_text=transcribed_text, translated_text=translated_text,
+            char_count=len(transcribed_text), metrics=metrics, audio_base64=audio_base64
+        )
         return VideoTranslationResponse(
             transcribed_text=transcribed_text,
-            translation=TranslationResponse(
-                source_text=transcribed_text,
-                translated_text=translated_text,
-                target_language=tgt_lang_short,
-                metrics=metrics,
-                audio_base64=audio_base64
-            ),
+            translation=translation_response,
             video_base64=video_base64
         )
     finally:
@@ -391,20 +308,24 @@ async def video_translate(video_file: UploadFile, src_lang: str, tgt_lang_full: 
 # --- API Endpoints ---
 @app.get("/")
 def read_root():
-    return {"message": "BhashaSetu MVC API with Speech Translation is running!"}
+    return {"message": "BhashaSetu MVC API is running!"}
 
 @app.post("/translate/text/{target_lang}", response_model=TranslationResponse, tags=["Text Translation"])
 def translate_text_endpoint(target_lang: str, request: TranslationRequest):
     tgt_lang_full = LANGUAGES.get(target_lang)
     if not tgt_lang_full:
         raise HTTPException(status_code=400, detail="Unsupported target language")
-    translated_text, metrics, audio_base64 = translate_with_timeout(request.text, "eng_Latn", tgt_lang_full, target_lang, request.ground_truth_text, request.include_audio)
+
+    translated_text, metrics, audio_base64 = translate_text(
+        text=request.text, src_lang="eng_Latn",
+        tgt_lang_full=tgt_lang_full, tgt_lang_short=target_lang,
+        ground_truth=request.ground_truth_text, include_audio=request.include_audio
+    )
+    
     return TranslationResponse(
-        source_text=request.text,
-        translated_text=translated_text,
-        target_language=target_lang,
-        metrics=metrics,
-        audio_base64=audio_base64
+        source_language="en", target_language=target_lang,
+        source_text=request.text, translated_text=translated_text,
+        char_count=len(request.text), metrics=metrics, audio_base64=audio_base64
     )
 
 @app.post("/translate/audio/{target_lang}", response_model=AudioTranslationResponse, tags=["Audio Translation"])
@@ -412,53 +333,83 @@ async def translate_audio_endpoint(target_lang: str, audio_file: UploadFile = Fi
     tgt_lang_full = LANGUAGES.get(target_lang)
     if not tgt_lang_full:
         raise HTTPException(status_code=400, detail="Unsupported target language")
-    return await translate_audio_file(audio_file, "eng_Latn", tgt_lang_full, target_lang, ground_truth_text, include_audio)
+    
+    temp_audio_path = f"./temp_{audio_file.filename}"
+    try:
+        with open(temp_audio_path, "wb") as buffer:
+            buffer.write(await audio_file.read())
+
+        transcription_result = whisper_model.transcribe(temp_audio_path, fp16=torch.cuda.is_available(), language="en")
+        transcribed_text = transcription_result["text"]
+        wer_score = calculate_wer(ground_truth_text, transcribed_text) if ground_truth_text else None
+        
+        translated_text, metrics, audio_base64 = translate_text(transcribed_text, "eng_Latn", tgt_lang_full, target_lang, ground_truth_text, include_audio)
+        metrics.wer_score = wer_score
+
+        translation_response = TranslationResponse(
+            source_language="en", target_language=target_lang,
+            source_text=transcribed_text, translated_text=translated_text,
+            char_count=len(transcribed_text), metrics=metrics, audio_base64=audio_base64
+        )
+        return AudioTranslationResponse(transcribed_text=transcribed_text, translation=translation_response)
+    finally:
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
 
 @app.post("/generate_subtitle/{target_lang}", response_model=SubtitleResponse, tags=["Subtitles"])
-async def generate_subtitle_endpoint(target_lang: str, file: UploadFile = File(...), ground_truth_text: str | None = Query(None), include_audio: bool = Query(True)):
+async def generate_subtitle_endpoint(target_lang: str, file: UploadFile = File(...), ground_truth_text: str | None = Query(None)):
     tgt_lang_full = LANGUAGES.get(target_lang)
     if not tgt_lang_full:
         raise HTTPException(status_code=400, detail="Unsupported target language")
-    return await generate_subtitles(file, "eng_Latn", tgt_lang_full, target_lang, ground_truth_text, include_audio)
+    return await generate_subtitles(file, "eng_Latn", tgt_lang_full, target_lang, ground_truth_text)
 
 @app.post("/video_translate/{target_lang}", response_model=VideoTranslationResponse, tags=["Video Translation"])
-async def video_translate_endpoint(target_lang: str, video_file: UploadFile = File(...), ground_truth_text: str | None = Query(None), include_audio: bool = Query(True)):
+async def video_translate_endpoint(target_lang: str, video_file: UploadFile = File(...), ground_truth_text: str | None = Query(None)):
     tgt_lang_full = LANGUAGES.get(target_lang)
     if not tgt_lang_full:
         raise HTTPException(status_code=400, detail="Unsupported target language")
-    return await video_translate(video_file, "eng_Latn", tgt_lang_full, target_lang, ground_truth_text, include_audio)
+    return await video_translate(video_file, "eng_Latn", tgt_lang_full, target_lang, ground_truth_text)
 
 @app.get("/demo_pib_translation", response_model=PIBTranslationResponse, tags=["Demo"])
-def demo_pib_translation(url: str = Query(...), lang: str = Query("hi"), include_audio: bool = Query(True)):
+async def demo_pib_translation(url: str = Query(...), lang: str = Query("hi"), include_audio: bool = Query(True)):
     tgt_lang_full = LANGUAGES.get(lang)
     if not tgt_lang_full:
         raise HTTPException(status_code=400, detail="Unsupported target language")
+    
+    start_time = time.time()
     try:
-        # Force English version by setting 'lang=1'
         parsed_url = urlparse(url)
         query_params = parse_qs(parsed_url.query)
-        query_params['lang'] = ['1']  # Override to English
+        query_params['lang'] = ['1']
         new_query = urlencode(query_params, doseq=True)
         english_url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, new_query, parsed_url.fragment))
         
-        response = requests.get(english_url, timeout=10)  # Add timeout to prevent hanging
+        fetch_start = time.time()
+        response = requests.get(english_url, timeout=10)
         response.raise_for_status()
+        fetch_ms = round((time.time() - fetch_start) * 1000, 3)
+
+        parse_start = time.time()
         soup = BeautifulSoup(response.text, 'html.parser')
         content_div = soup.find('div', class_='innner-page-main-about-us-content-right-part')
-        if not content_div:
-            raise ValueError("Content div not found")
-        # Extract body text from all <p> tags within the div
-        paragraphs = content_div.find_all('p')
-        original_text = '\n\n'.join(p.get_text(separator='\n', strip=True) for p in paragraphs if p.get_text(strip=True))
-    except requests.Timeout:
-        raise HTTPException(status_code=504, detail="Request to PIB timed out")
+        if not content_div: raise ValueError("Content div not found")
+        
+        paragraphs = [p.get_text(strip=True) for p in content_div.find_all('p')]
+        original_text = '\n\n'.join(p for p in paragraphs if p and '***' not in p and 'MJPS' not in p)
+        char_count = len(original_text)
+        parse_ms = round((time.time() - parse_start) * 1000, 3)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch or parse PIB article: {str(e)}")
-    translated_text, metrics, audio_base64 = translate_with_timeout(original_text, "eng_Latn", tgt_lang_full, lang, include_audio=include_audio)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch or parse PIB article: {e}")
+
+    translated_text, metrics, audio_base64 = translate_text(original_text, "eng_Latn", tgt_lang_full, lang, include_audio=include_audio)
+    metrics.fetch_ms = fetch_ms
+    metrics.parse_ms = parse_ms
+    total_latency = round((time.time() - start_time) * 1000, 3)
+    metrics.latency_ms = total_latency
+    metrics.cost_rupees = round((total_latency / 60000) * 0.10, 5)
+
     return PIBTranslationResponse(
-        original_text=original_text,
-        translated_text=translated_text,
-        target_language=lang,
-        metrics=metrics,
-        audio_base64=audio_base64
+        source_language="en", target_language=lang,
+        original_text=original_text, translated_text=translated_text,
+        char_count=char_count, metrics=metrics, audio_base64=audio_base64
     )

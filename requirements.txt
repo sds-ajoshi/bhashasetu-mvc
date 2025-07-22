@@ -3,10 +3,12 @@ uvicorn
 pydantic
 transformers
 torch
-IndicTransToolkit
+# IndicTransToolkit
 openai-whisper
 gtts
 ffmpeg-python
 requests
 beautifulsoup4
 nltk
+python-multipart
+langdetect
