@@ -4,10 +4,10 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from IndicTransToolkit.processor import IndicProcessor
 import time
 import torch
-from torch.cuda.amp import autocast
-import torch.quantization
+from torch.amp import autocast
 import functools
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+import concurrent.futures
 import io
 import base64
 from gtts import gTTS
@@ -110,14 +110,14 @@ translator_tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_co
 translator_model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(DEVICE)
 translator_model.eval()
 
-# Apply dynamic quantization if on CPU
-if DEVICE == "cpu":
-    translator_model = torch.quantization.quantize_dynamic(
-        translator_model, {torch.nn.Linear}, dtype=torch.qint8
-    )
-    logger.info("Applied dynamic quantization to the model for CPU.")
+# Temporarily disable quantization to rule out issues
+# if DEVICE == "cpu":
+#     translator_model = torch.quantization.quantize_dynamic(
+#         translator_model, {torch.nn.Linear}, dtype=torch.qint8
+#     )
+#     logger.info("Applied dynamic quantization to the model for CPU.")
 
-logger.info("IndicTrans2 loaded and quantized successfully.")
+logger.info("IndicTrans2 loaded successfully.")
 
 ip = IndicProcessor(inference=True)
 logger.info("IndicProcessor loaded successfully.")
@@ -145,22 +145,26 @@ def calculate_wer(reference: str, hypothesis: str) -> float:
     hyp_words = hypothesis.split()
     return edit_distance(ref_words, hyp_words) / len(ref_words) if ref_words else 0.0
 
-def translate_batch(batch_chunks, src_lang, tgt_lang_full):
+def translate_batch(batch_chunks, src_lang, tgt_lang_full, batch_index):
     try:
+        logger.info(f"Processing batch {batch_index} with {len(batch_chunks)} chunks...")
+        batch_start_time = time.time()
         batch = [preprocess_cache(chunk, src_lang, tgt_lang_full) for chunk in batch_chunks]
         inputs = translator_tokenizer(batch, truncation=True, padding="longest", return_tensors="pt", return_attention_mask=True).to(DEVICE)
         with torch.no_grad():
-            with autocast(enabled=DEVICE == "cuda"):
+            with torch.amp.autocast(device_type="cuda" if DEVICE == "cuda" else "cpu"):
                 generated_tokens = translator_model.generate(
                     **inputs, use_cache=True, min_length=0, max_length=512, num_beams=1, num_return_sequences=1
                 )
         decoded_tokens = translator_tokenizer.batch_decode(generated_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-        return ip.postprocess_batch(decoded_tokens, lang=tgt_lang_full)
+        translations = ip.postprocess_batch(decoded_tokens, lang=tgt_lang_full)
+        logger.info(f"Completed batch {batch_index} in {round((time.time() - batch_start_time) * 1000, 3)}ms")
+        return translations
     except Exception as e:
-        logger.error(f"Error in translate_batch: {e}")
+        logger.error(f"Error in translate_batch {batch_index}: {e}")
         return [""] * len(batch_chunks)
 
-def translate_chunks(chunks: list[str], src_lang: str, tgt_lang_full: str, batch_size: int = 32, max_workers: int = 4):
+def translate_chunks(chunks: list[str], src_lang: str, tgt_lang_full: str, batch_size: int = 16, max_workers: int = 2):
     if not chunks: return []
     non_empty_chunks = [chunk for chunk in chunks if chunk and chunk.strip()]
     if not non_empty_chunks: return [""] * len(chunks)
@@ -183,16 +187,25 @@ def translate_chunks(chunks: list[str], src_lang: str, tgt_lang_full: str, batch
     if to_translate:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
-                executor.submit(translate_batch, to_translate[i:i + batch_size], src_lang, tgt_lang_full)
+                executor.submit(translate_batch, to_translate[i:i + batch_size], src_lang, tgt_lang_full, i // batch_size + 1)
                 for i in range(0, len(to_translate), batch_size)
             ]
-            for future in futures:
-                batch_translations = future.result()
-                translated_chunks.extend(batch_translations)
-                # Update cache
-                for chunk, translation in zip(to_translate[len(translated_chunks) - len(batch_translations):], batch_translations):
-                    cache_key = (chunk, src_lang, tgt_lang_full)
-                    translation_cache[cache_key] = translation
+            try:
+                for future in as_completed(futures, timeout=300):  # 5-minute timeout per batch
+                    batch_translations = future.result()
+                    translated_chunks.extend(batch_translations)
+                    # Update cache
+                    batch_start_idx = len(translated_chunks) - len(batch_translations)
+                    for j in range(len(batch_translations)):
+                        chunk = to_translate[batch_start_idx + j]
+                        translation = batch_translations[j]
+                        cache_key = (chunk, src_lang, tgt_lang_full)
+                        translation_cache[cache_key] = translation
+            except TimeoutError:
+                logger.error("Translation batch timed out after 300 seconds")
+                # Fill remaining with empty strings
+                remaining = len(to_translate) - (len(translated_chunks) - cache_hits)
+                translated_chunks.extend([""] * remaining)
     
     translated_map = {original: translated for original, translated in zip(non_empty_chunks, translated_chunks)}
     return [translated_map.get(chunk, "") if chunk and chunk.strip() else "" for chunk in chunks]
