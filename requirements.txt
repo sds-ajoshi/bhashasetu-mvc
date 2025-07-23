@@ -12,3 +12,4 @@ beautifulsoup4
 nltk
 python-multipart
 langdetect
+pydub

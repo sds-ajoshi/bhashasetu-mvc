@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BhashaSetu - Live Demo</title>
+    <title>Prajna Labs - BhashaSetu Live Demo</title>
     <style>
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; 
@@ -41,7 +41,6 @@
             margin-bottom: 20px; 
             box-sizing: border-box;
         }
-        textarea { height: 120px; }
         .buttons { 
             text-align: center; 
             margin-bottom: 30px; 
@@ -67,10 +66,6 @@
             border: 1px solid #ccc; 
             margin-bottom: 20px; 
         }
-        .checkbox-container { 
-            margin-bottom: 20px; 
-            text-align: center; 
-        }
         .result-box { 
             background-color: #e9ecef; 
             border-left: 5px solid #007bff; 
@@ -80,9 +75,6 @@
             white-space: pre-wrap; 
             font-family: "Courier New", Courier, monospace; 
             word-wrap: break-word; 
-        }
-        .result-box h3 { 
-            margin-top: 0; 
         }
         #spinner { 
             text-align: center; 
@@ -100,224 +92,158 @@
             margin-bottom: 20px; 
             display: none; 
         }
-        audio { 
+        audio, video { 
             width: 100%; 
             margin-top: 10px; 
-        }
-        @media (max-width: 600px) {
-            .container { padding: 20px; }
-            button { width: 100%; margin: 10px 0; }
-            select, input[type="text"] { width: 100%; }
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>BhashaSetu - Live Demo</h1>
+    <h1>Prajna Labs - BhashaSetu Live Demo</h1>
 
-    <!-- Text Translation Section -->
-    <h2>Text Translation</h2>
-    <label for="inputText" class="sr-only">Enter English text</label>
-    <textarea id="inputText" placeholder="Enter English text here..."></textarea>
+    <!-- PIB Translation Section -->
+    <h2>PIB Press Release Translation</h2>
+    <input type="text" id="pibUrl" placeholder="Enter PIB Press Release URL...">
     <div class="buttons">
-        <select id="textLanguageSelect" aria-label="Select target language for text translation">
-            <option value="">Select Language</option>
-            <option value="hi">Hindi</option>
-            <option value="bn">Bengali</option>
-            <option value="ta">Tamil</option>
-            <option value="te">Telugu</option>
-            <option value="ml">Malayalam</option>
-            <option value="gu">Gujarati</option>
-            <option value="mr">Marathi</option>
-            <option value="pa">Punjabi</option>
-            <option value="kn">Kannada</option>
-            <option value="ur">Urdu</option>
-            <option value="or">Odia</option>
-            <option value="as">Assamese</option>
-        </select>
-        <button onclick="translateText()">Translate Text</button>
+        <select id="pibLanguageSelect" aria-label="Select language for PIB translation"></select>
+        <button onclick="translatePIB()">Translate PIB Article</button>
     </div>
-    <div id="textError" class="error-message">Please enter some text and select a language.</div>
+    <div id="pibError" class="error-message">Please enter a valid URL and select a language.</div>
 
     <!-- Audio Translation Section -->
     <h2>Audio Translation</h2>
-    <label for="audioFile" class="sr-only">Upload audio file</label>
     <input type="file" id="audioFile" accept="audio/*">
     <div class="buttons">
-        <select id="audioLanguageSelect" aria-label="Select target language for audio translation">
-            <option value="">Select Language</option>
-            <option value="hi">Hindi</option>
-            <option value="bn">Bengali</option>
-            <option value="ta">Tamil</option>
-            <option value="te">Telugu</option>
-            <option value="ml">Malayalam</option>
-            <option value="gu">Gujarati</option>
-            <option value="mr">Marathi</option>
-            <option value="pa">Punjabi</option>
-            <option value="kn">Kannada</option>
-            <option value="ur">Urdu</option>
-            <option value="or">Odia</option>
-            <option value="as">Assamese</option>
-        </select>
+        <select id="audioLanguageSelect" aria-label="Select language for Audio translation"></select>
         <button onclick="translateAudio()">Translate Audio</button>
     </div>
     <div id="audioError" class="error-message">Please select an audio file and a language.</div>
 
-    <!-- PIB Translation Section -->
-    <h2>PIB Press Release Translation</h2>
-    <label for="pibUrl" class="sr-only">Enter PIB URL</label>
-    <input type="text" id="pibUrl" placeholder="Enter PIB Press Release URL (e.g., https://www.pib.gov.in/PressReleasePage.aspx?PRID=1942412)">
-    <div class="checkbox-container">
-        <input type="checkbox" id="useSample" aria-label="Use sample text for quick testing">
-        <label for="useSample">Use sample text (quick test)</label>
-    </div>
+    <!-- Video & Subtitle Section -->
+    <h2>Video & Subtitle Generation</h2>
+    <input type="file" id="videoFile" accept="video/*">
     <div class="buttons">
-        <select id="pibLanguageSelect" aria-label="Select target language for PIB translation">
-            <option value="">Select Language</option>
-            <option value="hi">Hindi</option>
-            <option value="bn">Bengali</option>
-            <option value="ta">Tamil</option>
-            <option value="te">Telugu</option>
-            <option value="ml">Malayalam</option>
-            <option value="gu">Gujarati</option>
-            <option value="mr">Marathi</option>
-            <option value="pa">Punjabi</option>
-            <option value="kn">Kannada</option>
-            <option value="ur">Urdu</option>
-            <option value="or">Odia</option>
-            <option value="as">Assamese</option>
-        </select>
-        <button onclick="translatePIB()">Translate PIB</button>
+        <select id="videoLanguageSelect" aria-label="Select language for video processing"></select>
+        <button onclick="generateSubtitles()">Generate Subtitles</button>
+        <button onclick="translateVideo()">Translate & Dub Video</button>
     </div>
-    <div id="pibError" class="error-message">Please enter a valid PIB URL and select a language.</div>
+    <div id="videoError" class="error-message">Please select a video file and a language.</div>
 
     <!-- Shared Spinner and Result -->
-    <div id="spinner">Processing...</div>
+    <div id="spinner">Processing... Please wait, this may take a moment.</div>
     <div id="result" class="result-box" style="display:none;"></div>
 </div>
 
 <script>
-    // Language map for display names
+    const API_BASE_URL = "http://127.0.0.1:8000";
     const languages = [
-        { code: 'hi', name: 'Hindi' },
-        { code: 'bn', name: 'Bengali' },
-        { code: 'ta', name: 'Tamil' },
-        { code: 'te', name: 'Telugu' },
-        { code: 'ml', name: 'Malayalam' },
-        { code: 'gu', name: 'Gujarati' },
-        { code: 'mr', name: 'Marathi' },
-        { code: 'pa', name: 'Punjabi' },
-        { code: 'kn', name: 'Kannada' },
-        { code: 'ur', name: 'Urdu' },
-        { code: 'or', name: 'Odia' },
-        { code: 'as', name: 'Assamese' }
+        { code: 'hi', name: 'Hindi' }, { code: 'bn', name: 'Bengali' },
+        { code: 'ta', name: 'Tamil' }, { code: 'te', name: 'Telugu' },
+        { code: 'ml', name: 'Malayalam' }, { code: 'gu', name: 'Gujarati' },
+        { code: 'mr', name: 'Marathi' }, { code: 'pa', name: 'Punjabi' },
+        { code: 'kn', name: 'Kannada' }, { code: 'ur', name: 'Urdu' },
+        { code: 'or', name: 'Odia' }, { code: 'as', name: 'Assamese' }
     ];
 
-    // Helper to get language name by code
+    window.onload = () => {
+        const selects = ['pibLanguageSelect', 'audioLanguageSelect', 'videoLanguageSelect'];
+        selects.forEach(selectId => {
+            const selectElement = document.getElementById(selectId);
+            selectElement.innerHTML = '<option value="">Select Language</option>';
+            languages.forEach(lang => {
+                selectElement.innerHTML += `<option value="${lang.code}">${lang.name}</option>`;
+            });
+        });
+    };
+
     function getLanguageName(code) {
-        const lang = languages.find(l => l.code === code);
-        return lang ? lang.name : 'Unknown';
+        return languages.find(l => l.code === code)?.name || 'Unknown';
     }
 
-    // Text Translation Function
-    async function translateText() {
-        const text = document.getElementById('inputText').value.trim();
-        const lang = document.getElementById('textLanguageSelect').value;
-        const errorDiv = document.getElementById('textError');
-
-        if (!text || !lang) {
-            errorDiv.style.display = 'block';
-            return;
-        }
+    // --- API Call Functions ---
+    async function translatePIB() {
+        const url = document.getElementById('pibUrl').value.trim();
+        const lang = document.getElementById('pibLanguageSelect').value;
+        const errorDiv = document.getElementById('pibError');
+        if (!url || !lang) { return errorDiv.style.display = 'block'; }
         errorDiv.style.display = 'none';
 
-        const endpoint = `/translate/text/${lang}`;
-        const url = `http://127.0.0.1:8000${endpoint}`;
-        
+        const endpoint = `/demo_pib_translation?url=${encodeURIComponent(url)}&lang=${lang}&include_audio=true`;
         showSpinner();
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: text })
-            });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const response = await fetch(`${API_BASE_URL}${endpoint}`);
+            if (!response.ok) throw new Error(`Server error: ${await response.text()}`);
             const data = await response.json();
-            displayTextResult(data, lang);
-        } catch (error) {
-            handleError(error);
-        } finally {
-            hideSpinner();
-        }
+            displayPibResult(data);
+        } catch (error) { handleError(error); } finally { hideSpinner(); }
     }
-
-    // Audio Translation Function
+    
     async function translateAudio() {
         const audioInput = document.getElementById('audioFile');
         const file = audioInput.files[0];
         const lang = document.getElementById('audioLanguageSelect').value;
         const errorDiv = document.getElementById('audioError');
-
-        if (!file || !lang) {
-            errorDiv.style.display = 'block';
-            return;
-        }
+        if (!file || !lang) { return errorDiv.style.display = 'block'; }
         errorDiv.style.display = 'none';
 
         const endpoint = `/translate/audio/${lang}`;
-        const url = `http://127.0.0.1:8000${endpoint}`;
         const formData = new FormData();
         formData.append("audio_file", file);
 
         showSpinner();
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                body: formData
-            });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(`Server error: ${await response.text()}`);
             const data = await response.json();
-            displayAudioResult(data, lang);
-        } catch (error) {
-            handleError(error);
-        } finally {
-            hideSpinner();
-        }
+            displayAudioResult(data);
+        } catch (error) { handleError(error); } finally { hideSpinner(); }
     }
 
-    // PIB Translation Function
-    async function translatePIB() {
-        const url = document.getElementById('pibUrl').value.trim();
-        const lang = document.getElementById('pibLanguageSelect').value;
-        const useSample = document.getElementById('useSample').checked;
-        const errorDiv = document.getElementById('pibError');
-
-        if (!url || !lang) {
-            errorDiv.style.display = 'block';
-            return;
-        }
+    async function generateSubtitles() {
+        const videoInput = document.getElementById('videoFile');
+        const file = videoInput.files[0];
+        const lang = document.getElementById('videoLanguageSelect').value;
+        const errorDiv = document.getElementById('videoError');
+        if (!file || !lang) { return errorDiv.style.display = 'block'; }
         errorDiv.style.display = 'none';
 
-        const endpoint = `/demo_pib_translation?url=${encodeURIComponent(url)}&lang=${lang}&include_audio=${!useSample}&use_sample=${useSample}`;
-        const fetchUrl = `http://127.0.0.1:8000${endpoint}`;
-        
+        const endpoint = `/generate_subtitle/${lang}`;
+        const formData = new FormData();
+        formData.append("file", file);
+
         showSpinner();
         try {
-            const response = await fetch(fetchUrl, {
-                method: 'GET'
-            });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(`Server error: ${await response.text()}`);
             const data = await response.json();
-            displayTextResult(data, lang); // Reuse text result display for PIB
-        } catch (error) {
-            handleError(error);
-        } finally {
-            hideSpinner();
-        }
+            displaySubtitleResult(data);
+        } catch (error) { handleError(error); } finally { hideSpinner(); }
+    }
+    
+    async function translateVideo() {
+        const videoInput = document.getElementById('videoFile');
+        const file = videoInput.files[0];
+        const lang = document.getElementById('videoLanguageSelect').value;
+        const errorDiv = document.getElementById('videoError');
+        if (!file || !lang) { return errorDiv.style.display = 'block'; }
+        errorDiv.style.display = 'none';
+
+        const endpoint = `/video_translate/${lang}`;
+        const formData = new FormData();
+        formData.append("video_file", file);
+
+        showSpinner();
+        try {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(`Server error: ${await response.text()}`);
+            const data = await response.json();
+            displayVideoResult(data);
+        } catch (error) { handleError(error); } finally { hideSpinner(); }
     }
 
-    // Helper functions for UI
+    // --- UI Helper Functions ---
     function showSpinner() {
         document.getElementById('spinner').style.display = 'block';
         document.getElementById('result').style.display = 'none';
@@ -328,58 +254,79 @@
     }
 
     function handleError(error) {
-        console.error("Translation error:", error);
+        console.error("API Error:", error);
         const resultDiv = document.getElementById('result');
-        resultDiv.innerHTML = `<h3>Error</h3><p>Could not connect to the translation server. Please ensure it's running and try again. Error: ${error.message}</p>`;
+        resultDiv.innerHTML = `<h3>Error</h3><p>An error occurred. Please ensure the backend server is running and check the console for details. Error: ${error.message}</p>`;
         resultDiv.style.display = 'block';
     }
     
-    // Display Text/PIB Translation Result
-    function displayTextResult(data, lang) {
-        const resultDiv = document.getElementById('result');
-        const langName = getLanguageName(lang);
-        let resultHTML = `<h3>${data.original_text ? 'PIB Translation Result' : 'Text Translation Result'} (${langName})</h3>`;
-        resultHTML += `<p><strong>Source Text:</strong> ${data.original_text || data.source_text}</p>`;
-        resultHTML += `<p><strong>Translated Text:</strong> ${data.translated_text}</p>`;
-        resultHTML += `<p><strong>Character Count:</strong> ${data.char_count}</p><hr>`;
-        resultHTML += `<h4>Metrics:</h4><ul>`;
-        resultHTML += `<li><strong>Total Latency:</strong> ${(data.metrics.latency_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Fetch Time:</strong> ${(data.metrics.fetch_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Parse Time:</strong> ${(data.metrics.parse_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Translate Time:</strong> ${(data.metrics.translate_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.metrics.cost_rupees.toFixed(5)}</li></ul>`;
-
-        if (data.audio_base64) {
-            resultHTML += `<h4>Audio Output:</h4><audio controls><source src="data:audio/mp3;base64,${data.audio_base64}" type="audio/mp3">Your browser does not support the audio element.</audio>`;
-        } else {
-            resultHTML += `<p><em>Audio generation failed or not requested.</em></p>`;
+    function buildMetricsHtml(metrics) {
+        return `<h4>Metrics:</h4><ul>` +
+               `<li><strong>Total Latency:</strong> ${(metrics.latency_ms / 1000).toFixed(2)} s</li>` +
+               `<li><strong>Fetch Time:</strong> ${(metrics.fetch_ms / 1000).toFixed(2)} s</li>` +
+               `<li><strong>Parse Time:</strong> ${(metrics.parse_ms / 1000).toFixed(2)} s</li>` +
+               `<li><strong>Translate Time:</strong> ${(metrics.translate_ms / 1000).toFixed(2)} s</li>` +
+               `<li><strong>Estimated Cost:</strong> ₹${metrics.cost_rupees.toFixed(5)}</li>` +
+               (metrics.wer_score ? `<li><strong>WER Score:</strong> ${metrics.wer_score.toFixed(4)}</li>` : '') +
+               `</ul>`;
+    }
+    
+    function buildAudioPlayerHtml(audioBase64, title = "Audio Output") {
+        if (audioBase64) {
+            return `<h4>${title}:</h4><audio controls src="data:audio/mp3;base64,${audioBase64}"></audio>`;
         }
+        return `<p><em>Audio generation failed or was not available.</em></p>`;
+    }
 
+    function displayPibResult(data) {
+        const resultDiv = document.getElementById('result');
+        const langName = getLanguageName(data.target_language);
+        let resultHTML = `<h3>PIB Translation Result (${langName})</h3>`;
+        resultHTML += `<p><strong>Translated Text:</strong></p><textarea readonly style="height: 200px; background-color: #fff;">${data.translated_text}</textarea>`;
+        resultHTML += `<p><strong>Character Count:</strong> ${data.char_count}</p><hr>`;
+        resultHTML += buildMetricsHtml(data.metrics);
+        resultHTML += buildAudioPlayerHtml(data.audio_base64, "Translated Audio");
         resultDiv.innerHTML = resultHTML;
         resultDiv.style.display = 'block';
     }
 
-    // Display Audio Translation Result
-    function displayAudioResult(data, lang) {
+    function displayAudioResult(data) {
         const resultDiv = document.getElementById('result');
-        const langName = getLanguageName(lang);
+        const langName = getLanguageName(data.translation.target_language);
         let resultHTML = `<h3>Audio Translation Result (${langName})</h3>`;
         resultHTML += `<p><strong>Transcribed Text:</strong> ${data.transcribed_text}</p>`;
-        resultHTML += `<p><strong>Translated Text:</strong> ${data.translation.translated_text}</p>`;
-        resultHTML += `<p><strong>Character Count:</strong> ${data.translation.char_count}</p><hr>`;
-        resultHTML += `<h4>Metrics:</h4><ul>`;
-        resultHTML += `<li><strong>Total Latency:</strong> ${(data.translation.metrics.latency_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Fetch Time:</strong> ${(data.translation.metrics.fetch_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Parse Time:</strong> ${(data.translation.metrics.parse_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Translate Time:</strong> ${(data.translation.metrics.translate_ms / 1000).toFixed(2)} seconds</li>`;
-        resultHTML += `<li><strong>Estimated Cost:</strong> ₹${data.translation.metrics.cost_rupees.toFixed(5)}</li></ul>`;
+        resultHTML += `<p><strong>Translated Text:</strong> ${data.translation.translated_text}</p><hr>`;
+        resultHTML += buildMetricsHtml(data.translation.metrics);
+        resultHTML += buildAudioPlayerHtml(data.translation.audio_base64, "Translated Audio Output");
+        resultDiv.innerHTML = resultHTML;
+        resultDiv.style.display = 'block';
+    }
 
-        if (data.translation.audio_base64) {
-            resultHTML += `<h4>Audio Output:</h4><audio controls><source src="data:audio/mp3;base64,${data.translation.audio_base64}" type="audio/mp3">Your browser does not support the audio element.</audio>`;
+    function displaySubtitleResult(data) {
+        const resultDiv = document.getElementById('result');
+        const langName = getLanguageName(data.translation.target_language);
+        const srtBlob = new Blob([data.srt_content], { type: 'text/plain' });
+        const srtUrl = URL.createObjectURL(srtBlob);
+
+        let resultHTML = `<h3>Subtitle Generation Result (${langName})</h3>`;
+        resultHTML += `<p><strong>Transcribed Text:</strong> ${data.translation.source_text}</p>`;
+        resultHTML += `<p><a href="${srtUrl}" download="subtitles_${langName.toLowerCase()}.srt">Download .SRT Subtitle File</a></p><hr>`;
+        resultHTML += buildMetricsHtml(data.translation.metrics);
+        resultDiv.innerHTML = resultHTML;
+        resultDiv.style.display = 'block';
+    }
+    
+    function displayVideoResult(data) {
+        const resultDiv = document.getElementById('result');
+        const langName = getLanguageName(data.translation.target_language);
+        let resultHTML = `<h3>Video Dubbing Result (${langName})</h3>`;
+        if (data.video_base64) {
+            resultHTML += `<video controls src="data:video/mp4;base64,${data.video_base64}"></video>`;
         } else {
-            resultHTML += `<p><em>Audio generation failed or not available.</em></p>`;
+            resultHTML += `<p><em>Video processing failed. Please check server logs.</em></p>`;
         }
-
+        resultHTML += `<p><strong>Transcribed Text:</strong> ${data.transcribed_text}</p><hr>`;
+        resultHTML += buildMetricsHtml(data.translation.metrics);
         resultDiv.innerHTML = resultHTML;
         resultDiv.style.display = 'block';
     }
