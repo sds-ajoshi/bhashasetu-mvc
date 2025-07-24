@@ -1,15 +1,12 @@
 fastapi
 uvicorn
-pydantic
-transformers
+python-multipart
 torch
-# IndicTransToolkit
+transformers
 openai-whisper
 gtts
+pydub
 ffmpeg-python
 requests
 beautifulsoup4
 nltk
-python-multipart
-langdetect
-pydub
