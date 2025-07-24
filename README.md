@@ -45,7 +45,7 @@ To run the BhashaSetu MVC Demo, ensure you have the following installed:
 
 1. **Clone the Repository:**
    ```bash
-   git clone [https://github.com/your-repo/bhashasetu-mvc-demo.git](https://github.com/your-repo/bhashasetu-mvc-demo.git)
+   git clone https://github.com/your-repo/bhashasetu-mvc-demo.git
    cd bhashasetu-mvc-demo
    ```
 
